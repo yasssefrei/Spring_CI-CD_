@@ -8,13 +8,25 @@ pipeline {
   stages {
     stage('Préparation') {
       steps {
-        echo '🔧 Installation de Trivy si absent, puis Docker login'
+        echo '🔧 Mise à jour, installation wget & Trivy, puis Docker login'
         sh '''
+          # Mettre à jour la liste des paquets
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update -y
+            sudo apt-get install -y wget
+          elif command -v yum &> /dev/null; then
+            sudo yum makecache
+            sudo yum install -y wget
+          fi
+
+          # Installer Trivy si absent
           if ! command -v trivy &> /dev/null; then
             wget https://github.com/aquasecurity/trivy/releases/download/v0.44.1/trivy_0.44.1_Linux-64bit.deb
             sudo dpkg -i trivy_0.44.1_Linux-64bit.deb
           fi
         '''
+
+        // Authentification DockerHub via credentials Jenkins
         withCredentials([usernamePassword(
           credentialsId: "${env.DOCKERHUB_CRED}",
           usernameVariable: 'DOCKER_USER',
