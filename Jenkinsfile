@@ -10,22 +10,21 @@ pipeline {
       steps {
         echo '🔧 Mise à jour, installation wget & Trivy, puis Docker login'
         sh '''
-          # Mettre à jour la liste des paquets
+          # Mise à jour des paquets et installation de wget
           if command -v apt-get &> /dev/null; then
-            sudo apt-get update -y
-            sudo apt-get install -y wget
+            apt-get update -y
+            apt-get install -y wget
           elif command -v yum &> /dev/null; then
-            sudo yum makecache
-            sudo yum install -y wget
+            yum makecache
+            yum install -y wget
           fi
 
           # Installer Trivy si absent
           if ! command -v trivy &> /dev/null; then
             wget https://github.com/aquasecurity/trivy/releases/download/v0.44.1/trivy_0.44.1_Linux-64bit.deb
-            sudo dpkg -i trivy_0.44.1_Linux-64bit.deb
+            dpkg -i trivy_0.44.1_Linux-64bit.deb
           fi
         '''
-
         // Authentification DockerHub via credentials Jenkins
         withCredentials([usernamePassword(
           credentialsId: "${env.DOCKERHUB_CRED}",
@@ -39,14 +38,14 @@ pipeline {
 
     stage('Build Maven') {
       steps {
-        echo '🧱 mvn clean package'
+        echo '🧱 Exécution de mvn clean package'
         sh 'mvn clean package -B'
       }
     }
 
     stage('Docker Build & Scan') {
       steps {
-        echo '🐳 docker build + trivy scan'
+        echo '🐳 Construction de l’image Docker + scan Trivy'
         sh '''
           docker build -t demoapp:${GIT_COMMIT} .
           trivy image --exit-code 1 --severity HIGH,CRITICAL demoapp:${GIT_COMMIT}
@@ -56,7 +55,7 @@ pipeline {
 
     stage('Push to DockerHub') {
       steps {
-        echo '📤 push image DockerHub'
+        echo '📤 Push de l’image sur Docker Hub'
         sh '''
           docker tag demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:${GIT_COMMIT}
           docker tag demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
