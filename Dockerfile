@@ -4,7 +4,7 @@
 FROM maven:3.8.8-openjdk-17 AS build
 WORKDIR /app
 
-# Copier le pom et pré-télécharger les dépendances
+# Copier pom et pré-télécharger les dépendances
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 
