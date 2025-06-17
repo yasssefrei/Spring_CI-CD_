@@ -2,12 +2,14 @@ pipeline {
   agent any
 
   tools {
-    jdk    'jdk17'
-    maven  'maven3'
+    jdk   'jdk17'
+    maven 'maven3'
   }
 
   environment {
-    DOCKERHUB_CRED = 'dockerhub'    // ID de tes credentials Jenkins
+    DOCKER_CRED  = 'dockerhub'
+    SONAR_TOKEN  = credentials('sonar-token')
+    SONAR_URL    = 'http://localhost:9000'
   }
 
   stages {
@@ -15,48 +17,61 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build Maven') {
+    stage('Build & Test') {
       steps {
-        echo '🔧 mvn clean package'
         sh 'mvn clean package -B'
+      }
+    }
+
+    stage('SonarQube Analysis') {
+      steps {
+        withSonarQubeEnv('MySonar') {
+          sh """
+            mvn sonar:sonar \
+              -Dsonar.projectKey=Spring_CI-CD \
+              -Dsonar.host.url=${SONAR_URL} \
+              -Dsonar.login=${SONAR_TOKEN}
+          """
+        }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 2, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
       }
     }
 
     stage('Docker Build') {
       steps {
-        echo '🐳 docker build'
         script {
-          // Récupère user de DockerHub pour tag
-          def user = ''
-          withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
-                                            usernameVariable: 'DOCKER_USER',
-                                            passwordVariable: 'DOCKER_PASS')]) {
-            user = env.DOCKER_USER
+          withCredentials([usernamePassword(
+            credentialsId: DOCKER_CRED,
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
+          )]) {
+            sh 'docker login -u $DOCKER_USER --password-stdin <<< $DOCKER_PASS'
+            sh "docker build -t $DOCKER_USER/demoapp:${env.GIT_COMMIT} ."
           }
-          // Build l’image
-          sh "docker build -t ${user}/demoapp:${env.GIT_COMMIT} ."
         }
       }
     }
 
-    stage('Push to Docker Hub') {
+    stage('Push to DockerHub') {
       steps {
-        echo '📤 Push image to Docker Hub'
-        withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
-                                          usernameVariable: 'DOCKER_USER',
-                                          passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
-            docker push $DOCKER_USER/demoapp:latest || true
-          '''
-        }
+        sh '''
+          docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
+          docker tag $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
+          docker push $DOCKER_USER/demoapp:latest
+        '''
       }
     }
   }
 
   post {
-    success { echo '✅ Pipeline terminé avec succès' }
-    failure { echo '❌ Pipeline échoué' }
+    success { echo '✅ Pipeline OK' }
+    failure { echo '❌ Pipeline KO' }
   }
 }
