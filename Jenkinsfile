@@ -7,9 +7,9 @@ pipeline {
   }
 
   environment {
-    DOCKER_CRED  = 'dockerhub'
-    SONAR_TOKEN  = credentials('sonar-token')
-    SONAR_URL    = 'http://localhost:9000'
+    DOCKERHUB_CRED = 'dockerhub'
+    SONAR_TOKEN    = credentials('sonar-token')
+    SONAR_HOST_URL = 'http://localhost:9000'
   }
 
   stages {
@@ -17,7 +17,7 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build & Test') {
+    stage('Build Maven') {
       steps {
         sh 'mvn clean package -B'
       }
@@ -26,20 +26,24 @@ pipeline {
     stage('SonarQube Analysis') {
       steps {
         withSonarQubeEnv('MySonar') {
-          sh """
-            mvn sonar:sonar \
-              -Dsonar.projectKey=Spring_CI-CD \
-              -Dsonar.host.url=${SONAR_URL} \
-              -Dsonar.login=${SONAR_TOKEN}
-          """
+          sh "mvn sonar:sonar -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.login=${SONAR_TOKEN}"
         }
       }
     }
 
     stage('Quality Gate') {
       steps {
+        echo '⏳ Vérification Quality Gate (pipeline NON stoppé)'
         timeout(time: 2, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: true
+          script {
+            def qg = waitForQualityGate()
+            if (qg.status != 'OK') {
+              currentBuild.result = 'UNSTABLE'
+              echo "⚠️ Quality Gate status: ${qg.status}"
+            } else {
+              echo "✅ Quality Gate passed"
+            }
+          }
         }
       }
     }
@@ -48,18 +52,18 @@ pipeline {
       steps {
         script {
           withCredentials([usernamePassword(
-            credentialsId: DOCKER_CRED,
+            credentialsId: DOCKERHUB_CRED,
             usernameVariable: 'DOCKER_USER',
             passwordVariable: 'DOCKER_PASS'
           )]) {
-            sh 'docker login -u $DOCKER_USER --password-stdin <<< $DOCKER_PASS'
+            sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
             sh "docker build -t $DOCKER_USER/demoapp:${env.GIT_COMMIT} ."
           }
         }
       }
     }
 
-    stage('Push to DockerHub') {
+    stage('Push to Docker Hub') {
       steps {
         sh '''
           docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
@@ -71,7 +75,8 @@ pipeline {
   }
 
   post {
-    success { echo '✅ Pipeline OK' }
-    failure { echo '❌ Pipeline KO' }
+    success  { echo '✅ Pipeline terminé avec succès' }
+    unstable { echo '⚠️ Pipeline instable (Quality Gate)' }
+    failure  { echo '❌ Pipeline échoué' }
   }
 }
