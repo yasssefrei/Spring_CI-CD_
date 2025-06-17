@@ -7,9 +7,7 @@ pipeline {
   }
 
   environment {
-    DOCKER_CRED = 'dockerhub'         // ID Jenkins credential Docker Hub
-    SONAR_TOKEN = credentials('sonar-token')
-    SONAR_URL   = 'http://localhost:9000'
+    DOCKER_CRED = 'dockerhub'
   }
 
   stages {
@@ -17,58 +15,59 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build & Test') {
+    stage('Build Maven') {
       steps {
+        echo '🔧 mvn clean package'
         sh 'mvn clean package -B'
       }
     }
 
-    stage('SonarQube Analysis') {
+    stage('Docker Build') {
       steps {
-        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-          withSonarQubeEnv('MySonar') {
-            sh "mvn sonar:sonar -Dsonar.host.url=${SONAR_URL} -Dsonar.login=${SONAR_TOKEN}"
+        echo '🐳 docker build'
+        script {
+          withCredentials([usernamePassword(
+            credentialsId: DOCKER_CRED,
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
+          )]) {
+            sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+            sh "docker build -t $DOCKER_USER/demoapp:${GIT_COMMIT} ."
           }
         }
       }
     }
 
-    stage('Quality Gate') {
+    stage('Trivy Scan') {
       steps {
+        echo '🔍 Scanning image with Trivy'
+        // captureError pour ne pas breaker le pipeline si vulnérabilités trouvées
         catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-          timeout(time: 2, unit: 'MINUTES') {
-            script {
-              def qg = waitForQualityGate()
-              echo "Quality Gate: ${qg.status}"
-              if (qg.status != 'OK') { currentBuild.result = 'UNSTABLE' }
-            }
+          script {
+            // Utilise l’image que tu viens de builder
+            def img = "${env.DOCKER_USER}/demoapp:${env.GIT_COMMIT}"
+            // Scan ; exit code 1 si vulnérabilités HIGH/CRITICAL
+            sh "trivy image --exit-code 1 --severity HIGH,CRITICAL $img"
           }
         }
       }
     }
 
-    stage('Docker Login, Build & Push') {
+    stage('Push to Docker Hub') {
       steps {
-        withCredentials([usernamePassword(
-          credentialsId: DOCKER_CRED,
-          usernameVariable: 'DOCKER_USER',
-          passwordVariable: 'DOCKER_PASS'
-        )]) {
-          sh '''
-            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker build -t $DOCKER_USER/demoapp:${GIT_COMMIT} .
-            docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
-            docker tag $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
-            docker push $DOCKER_USER/demoapp:latest
-          '''
-        }
+        echo '📤 Push image to Docker Hub'
+        sh """
+          docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
+          docker tag $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
+          docker push $DOCKER_USER/demoapp:latest
+        """
       }
     }
   }
 
   post {
     success  { echo '✅ Pipeline terminé avec succès' }
-    unstable { echo '⚠️ Pipeline instable (vérifier les logs)' }
-    failure  { echo '❌ Pipeline échoué' }
+    unstable { echo '⚠️ Pipeline instable (vulnérabilités détectées par Trivy)' }
+    failure  { echo '❌ Pipeline KO' }
   }
 }
