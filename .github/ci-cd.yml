@@ -1,0 +1,51 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout du code
+      - uses: actions/checkout@v3
+
+      # 2. Setup Java & Maven
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 3. Build & Test Maven
+      - name: Build with Maven
+        run: mvn clean package -B
+
+      # 4. Build Docker image
+      - name: Build Docker image
+        run: docker build -t ${{ github.repository_owner }}/demoapp:${{ github.sha }} .
+
+      # 5. Install Trivy and scan
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.44.1/trivy_0.44.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.44.1_Linux-64bit.deb
+      - name: Scan Docker image
+        run: |
+          trivy image --exit-code 1 --severity HIGH,CRITICAL ${{ github.repository_owner }}/demoapp:${{ github.sha }}
+
+      # 6. Login & push to Docker Hub
+      - name: Docker Hub Login
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          docker tag ${{ github.repository_owner }}/demoapp:${{ github.sha }} ${{ github.repository_owner }}/demoapp:latest
+          docker push ${{ github.repository_owner }}/demoapp:${{ github.sha }}
+          docker push ${{ github.repository_owner }}/demoapp:latest
