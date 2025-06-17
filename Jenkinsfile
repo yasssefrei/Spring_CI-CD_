@@ -7,7 +7,9 @@ pipeline {
   }
 
   environment {
-    DOCKERHUB_CRED = 'dockerhub'    // ID de tes credentials Jenkins
+    DOCKERHUB_CRED = 'dockerhub'
+    SONAR_TOKEN    = credentials('sonar-token')
+    SONAR_SERVER   = 'MySonar'
   }
 
   stages {
@@ -15,41 +17,54 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build Maven') {
+    stage('Build & Test Maven') {
       steps {
-        echo '🔧 mvn clean package'
+        echo '🧱 mvn clean package'
         sh 'mvn clean package -B'
       }
     }
 
-    stage('Docker Build') {
+    stage('SonarQube Analysis') {
       steps {
-        echo '🐳 docker build'
-        script {
-          // Récupère user de DockerHub pour tag
-          def user = ''
-          withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
-                                            usernameVariable: 'DOCKER_USER',
-                                            passwordVariable: 'DOCKER_PASS')]) {
-            user = env.DOCKER_USER
-          }
-          // Build l’image
-          sh "docker build -t ${user}/demoapp:${env.GIT_COMMIT} ."
+        echo '🔍 SonarQube scan'
+        withSonarQubeEnv("${SONAR_SERVER}") {
+          sh """
+            mvn sonar:sonar \
+              -Dsonar.projectKey=Spring_CI_CD \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_TOKEN
+          """
         }
       }
     }
 
-    stage('Push to Docker Hub') {
+    stage('Quality Gate') {
       steps {
-        echo '📤 Push image to Docker Hub'
-        withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
-                                          usernameVariable: 'DOCKER_USER',
-                                          passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
-            docker push $DOCKER_USER/demoapp:latest || true
-          '''
+        echo '⏳ Waiting for SonarQube Quality Gate'
+        timeout(time: 2, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+
+    stage('Docker Build & Push') {
+      steps {
+        script {
+          def user = ''
+          withCredentials([usernamePassword(
+            credentialsId: "${DOCKERHUB_CRED}",
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
+          )]) {
+            user = env.DOCKER_USER
+            sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+          }
+          sh "docker build -t ${user}/demoapp:${env.GIT_COMMIT} ."
+          sh """
+            docker push ${user}/demoapp:${env.GIT_COMMIT}
+            docker tag ${user}/demoapp:${env.GIT_COMMIT} ${user}/demoapp:latest
+            docker push ${user}/demoapp:latest
+          """
         }
       }
     }
