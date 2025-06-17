@@ -7,9 +7,9 @@ pipeline {
   }
 
   environment {
-    DOCKER_CRED    = 'dockerhub'        // Jenkins credential ID DockerHub
-    SONAR_TOKEN    = credentials('sonar-token')  // SonarQube token
-    SONAR_HOST_URL = 'http://localhost:9000'
+    DOCKER_CRED = 'dockerhub'         // ID Jenkins credential Docker Hub
+    SONAR_TOKEN = credentials('sonar-token')
+    SONAR_URL   = 'http://localhost:9000'
   }
 
   stages {
@@ -27,12 +27,7 @@ pipeline {
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
           withSonarQubeEnv('MySonar') {
-            sh """
-              mvn sonar:sonar \
-                -Dsonar.projectKey=Spring_CI-CD \
-                -Dsonar.host.url=${SONAR_HOST_URL} \
-                -Dsonar.login=${SONAR_TOKEN}
-            """
+            sh "mvn sonar:sonar -Dsonar.host.url=${SONAR_URL} -Dsonar.login=${SONAR_TOKEN}"
           }
         }
       }
@@ -44,39 +39,26 @@ pipeline {
           timeout(time: 2, unit: 'MINUTES') {
             script {
               def qg = waitForQualityGate()
-              echo "Quality Gate status: ${qg.status}"
-              if (qg.status != 'OK') {
-                currentBuild.result = 'UNSTABLE'
-              }
+              echo "Quality Gate: ${qg.status}"
+              if (qg.status != 'OK') { currentBuild.result = 'UNSTABLE' }
             }
           }
         }
       }
     }
 
-    stage('Docker Build') {
+    stage('Docker Login, Build & Push') {
       steps {
-        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-          script {
-            withCredentials([usernamePassword(
-              credentialsId: DOCKER_CRED,
-              usernameVariable: 'DOCKER_USER',
-              passwordVariable: 'DOCKER_PASS'
-            )]) {
-              sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-              sh "docker build -t $DOCKER_USER/demoapp:${env.GIT_COMMIT} ."
-            }
-          }
-        }
-      }
-    }
-
-    stage('Push to Docker Hub') {
-      steps {
-        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+        withCredentials([usernamePassword(
+          credentialsId: DOCKER_CRED,
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
           sh '''
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker build -t $DOCKER_USER/demoapp:${GIT_COMMIT} .
             docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
-            docker tag  $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
+            docker tag $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
             docker push $DOCKER_USER/demoapp:latest
           '''
         }
@@ -85,8 +67,8 @@ pipeline {
   }
 
   post {
-    success  { echo '✅ Pipeline OK' }
-    unstable { echo '⚠️ Pipeline instable (vérifier SonarQube/Docker)' }
-    failure  { echo '❌ Pipeline KO' }
+    success  { echo '✅ Pipeline terminé avec succès' }
+    unstable { echo '⚠️ Pipeline instable (vérifier les logs)' }
+    failure  { echo '❌ Pipeline échoué' }
   }
 }
