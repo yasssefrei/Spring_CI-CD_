@@ -1,7 +1,7 @@
 # -----------------------
 # 1. Build stage (Maven)
 # -----------------------
-FROM maven:3.8.8-jdk-17-slim AS build
+FROM maven:3.8.8-openjdk-17 AS build
 WORKDIR /app
 
 # Copier le pom et pré-télécharger les dépendances
