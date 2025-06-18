@@ -10,7 +10,7 @@ pipeline {
     DOCKER_CRED = 'dockerhub'
     SONAR_TOKEN = credentials('sonar-token')
     SONAR_URL   = 'http://localhost:9000'
-    NEXUS_URL   = 'http://54.205.118.22:8081/repository/maven-snapshots/'
+    NEXUS_URL   = 'http://54.90.171.191/repository/maven-snapshots/'
   }
 
   stages {
@@ -101,7 +101,7 @@ pipeline {
 EOF'''
       
       // Utilise le nouveau settings.xml et corrige la syntaxe du repository
-      sh 'mvn deploy -B -s settings.xml -DaltDeploymentRepository=nexus::http://54.205.118.22:8081/repository/maven-snapshots/'
+      sh 'mvn deploy -B -s settings.xml -DaltDeploymentRepository=nexus::http://54.90.171.191:8081/repository/maven-snapshots/'
     }
   }
 }
