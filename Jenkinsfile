@@ -10,7 +10,7 @@ pipeline {
     DOCKER_CRED = 'dockerhub'
     SONAR_TOKEN = credentials('sonar-token')
     SONAR_URL   = 'http://localhost:9000'
-    NEXUS_URL   = 'http://34.227.110.97:8081/repository/maven-snapshots/'
+    NEXUS_URL   = 'http://54.205.118.22:8081/repository/maven-snapshots/'
   }
 
   stages {
@@ -70,6 +70,15 @@ pipeline {
       }
     }
 
+    stage('Trivy Scan') {
+      steps {
+        echo '🔍 Scanning image with Trivy'
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          sh "trivy image --exit-code 1 --severity HIGH,CRITICAL $DOCKER_USER/demoapp:${GIT_COMMIT}"
+        }
+      }
+    }
+
     stage('Deploy to Nexus') {
   steps {
     echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
@@ -92,7 +101,7 @@ pipeline {
 EOF'''
       
       // Utilise le nouveau settings.xml et corrige la syntaxe du repository
-      sh 'mvn deploy -B -s settings.xml -DaltDeploymentRepository=nexus::http://34.227.110.97:8081/repository/maven-snapshots/'
+      sh 'mvn deploy -B -s settings.xml -DaltDeploymentRepository=nexus::http://54.205.118.22:8081/repository/maven-snapshots/'
     }
   }
 }
