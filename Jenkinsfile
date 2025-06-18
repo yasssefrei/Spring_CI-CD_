@@ -40,13 +40,18 @@ pipeline {
     }
 
     stage('Trivy Scan') {
-      steps {
-        echo '🔍 Trivy Scan'
-        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${env.DOCKER_USER}/demoapp:${env.GIT_COMMIT}"
-        }
+  steps {
+    echo '🔍 Trivy security scan'
+    withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
+                                      usernameVariable: 'DOCKER_USER',
+                                      passwordVariable: 'DOCKER_PASS')]) {
+      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+        sh "trivy image --exit-code 1 --severity HIGH,CRITICAL $DOCKER_USER/demoapp:${GIT_COMMIT}"
       }
     }
+  }
+}
+
 
     stage('Push to Docker Hub') {
       steps {
@@ -62,27 +67,31 @@ pipeline {
       }
     }
 
-    stage('Deploy JAR to Nexus') {
-      steps {
-        echo '📦 Déploiement JAR vers Nexus'
-        withCredentials([usernamePassword(credentialsId: "${NEXUS_CRED}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
-          sh '''
-            cat > settings.xml <<EOF
+    stage('Deploy to Nexus') {
+  steps {
+    echo '🚀 Déploiement du JAR dans Nexus'
+    withCredentials([usernamePassword(credentialsId: 'nexus-admin',
+                                      usernameVariable: 'NEXUS_USER',
+                                      passwordVariable: 'NEXUS_PASS')]) {
+      sh '''
+        mkdir -p $HOME/.m2
+        cat > $HOME/.m2/settings.xml <<EOF
 <settings>
   <servers>
     <server>
-      <id>nexus-releases</id>
-      <username>${NEXUS_USER}</username>
-      <password>${NEXUS_PASS}</password>
+      <id>maven_releases</id>
+      <username>$NEXUS_USER</username>
+      <password>$NEXUS_PASS</password>
     </server>
   </servers>
 </settings>
 EOF
-            mvn deploy -s settings.xml -DskipTests
-          '''
-        }
-      }
+        mvn deploy -s $HOME/.m2/settings.xml -B
+      '''
     }
+  }
+}
+
   }
 
   post {
