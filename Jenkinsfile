@@ -70,7 +70,7 @@ pipeline {
   steps {
     echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
     withCredentials([usernamePassword(
-      credentialsId: 'nexus-credential',
+      credentialsId: 'nexus-credentials',
       usernameVariable: 'NEXUS_USER',
       passwordVariable: 'NEXUS_PASS'
     )]) {
