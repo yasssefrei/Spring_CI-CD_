@@ -10,6 +10,7 @@ pipeline {
     DOCKER_CRED = 'dockerhub'
     SONAR_TOKEN = credentials('sonar-token')
     SONAR_URL   = 'http://localhost:9000'
+    NEXUS_URL   = 'http://34.227.110.97:8081/repository/maven-snapshots/'
   }
 
   stages {
@@ -67,17 +68,11 @@ pipeline {
 
     stage('Deploy to Nexus') {
       steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'nexus-credentials',
-          usernameVariable: 'NEXUS_USERNAME',
-          passwordVariable: 'NEXUS_PASSWORD'
-        )]) {
-          sh '''
-            mvn deploy -B \
-              -s settings-nexus.xml \
-              -DaltDeploymentRepository=nexus::default::http://34.227.110.97:8081/repository/maven-snapshots/
-          '''
-        }
+        echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
+        sh '''
+          mvn deploy -B \
+            -DaltDeploymentRepository=nexus::default::${NEXUS_URL}
+        '''
       }
     }
   }
