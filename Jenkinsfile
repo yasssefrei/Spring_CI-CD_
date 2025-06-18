@@ -70,6 +70,15 @@ pipeline {
       }
     }
 
+    stage('Trivy Scan') {
+      steps {
+        echo '🔍 Scanning image with Trivy'
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          sh "trivy image --exit-code 1 --severity HIGH,CRITICAL $DOCKER_USER/demoapp:${GIT_COMMIT}"
+        }
+      }
+    }
+
     stage('Deploy to Nexus') {
   steps {
     echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
