@@ -15,7 +15,9 @@ pipeline {
 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
 
     stage('Build & Test') {
@@ -41,7 +43,9 @@ pipeline {
             script {
               def qg = waitForQualityGate()
               echo "Quality Gate: ${qg.status}"
-              if (qg.status != 'OK') { currentBuild.result = 'UNSTABLE' }
+              if (qg.status != 'OK') {
+                currentBuild.result = 'UNSTABLE'
+              }
             }
           }
         }
@@ -67,23 +71,21 @@ pipeline {
     }
 
     stage('Deploy to Nexus') {
-  steps {
-    echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
-    withCredentials([usernamePassword(
-      credentialsId: 'nexus-credentials',
-      usernameVariable: 'NEXUS_USER',
-      passwordVariable: 'NEXUS_PASS'
-    )]) {
-      sh '''
-        mvn deploy -B \
-          -DaltDeploymentRepository=nexus::default::http://34.227.110.97:8081/repository/maven-snapshots/ \
-          -Dusername=$NEXUS_USER \
-          -Dpassword=$NEXUS_PASS
-      '''
+      steps {
+        echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
+        withCredentials([usernamePassword(
+          credentialsId: 'nexus-credentials',  // ✅ CORRECTION ICI
+          usernameVariable: 'NEXUS_USER',
+          passwordVariable: 'NEXUS_PASS'
+        )]) {
+          sh '''
+            mvn deploy -B \
+              -DaltDeploymentRepository=nexus::default::${NEXUS_URL} \
+              -Dusername=${NEXUS_USER} -Dpassword=${NEXUS_PASS}
+          '''
+        }
+      }
     }
-  }
-}
-
   }
 
   post {
