@@ -2,13 +2,14 @@ pipeline {
   agent any
 
   tools {
-    jdk    'jdk17'
-    maven  'maven3'
+    jdk   'jdk17'
+    maven 'maven3'
   }
 
   environment {
-    DOCKERHUB_CRED = 'dockerhub'
-    NEXUS_CRED     = 'nexus-creds'
+    DOCKER_CRED = 'dockerhub'         // ID Jenkins credential Docker Hub
+    SONAR_TOKEN = credentials('sonar-token')
+    SONAR_URL   = 'http://localhost:9000'
   }
 
   stages {
@@ -16,56 +17,46 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build Maven') {
+    stage('Build & Test') {
       steps {
-        echo '🔧 mvn clean package'
         sh 'mvn clean package -B'
       }
     }
 
-    stage('Docker Build & Login') {
+    stage('SonarQube Analysis') {
       steps {
-        echo '🐳 docker build & login'
-        script {
-          def user = ''
-          withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-            user = env.DOCKER_USER
-            sh '''
-              echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            '''
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          withSonarQubeEnv('MySonar') {
+            sh "mvn sonar:sonar -Dsonar.host.url=${SONAR_URL} -Dsonar.login=${SONAR_TOKEN}"
           }
-          sh "docker build -t ${user}/demoapp:${env.GIT_COMMIT} ."
         }
       }
     }
 
-    stage('Trivy Scan') {
-  steps {
-    echo '🔍 Analyse de sécurité avec Trivy'
-    script {
-      withCredentials([usernamePassword(
-        credentialsId: "${DOCKERHUB_CRED}",
-        usernameVariable: 'DOCKER_USER',
-        passwordVariable: 'DOCKER_PASS'
-      )]) {
-        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          sh """
-            trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_USER}/demoapp:${GIT_COMMIT}
-          """
-        }
-      }
-    }
-  }
-}
-
-
-
-    stage('Push to Docker Hub') {
+    stage('Quality Gate') {
       steps {
-        echo '📤 Push image to Docker Hub'
-        withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          timeout(time: 2, unit: 'MINUTES') {
+            script {
+              def qg = waitForQualityGate()
+              echo "Quality Gate: ${qg.status}"
+              if (qg.status != 'OK') { currentBuild.result = 'UNSTABLE' }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Docker Login, Build & Push') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: DOCKER_CRED,
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
           sh '''
             echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker build -t $DOCKER_USER/demoapp:${GIT_COMMIT} .
             docker push $DOCKER_USER/demoapp:${GIT_COMMIT}
             docker tag $DOCKER_USER/demoapp:${GIT_COMMIT} $DOCKER_USER/demoapp:latest
             docker push $DOCKER_USER/demoapp:latest
@@ -73,37 +64,11 @@ pipeline {
         }
       }
     }
-
-    stage('Deploy to Nexus') {
-  steps {
-    echo '🚀 Déploiement du JAR dans Nexus'
-    withCredentials([usernamePassword(credentialsId: 'nexus-admin',
-                                      usernameVariable: 'NEXUS_USER',
-                                      passwordVariable: 'NEXUS_PASS')]) {
-      sh '''
-        mkdir -p $HOME/.m2
-        cat > $HOME/.m2/settings.xml <<EOF
-<settings>
-  <servers>
-    <server>
-      <id>maven_releases</id>
-      <username>$NEXUS_USER</username>
-      <password>$NEXUS_PASS</password>
-    </server>
-  </servers>
-</settings>
-EOF
-        mvn deploy -s $HOME/.m2/settings.xml -B
-      '''
-    }
-  }
-}
-
   }
 
   post {
-    success { echo '✅ Pipeline terminé avec succès' }
-    failure { echo '❌ Pipeline échoué' }
-    unstable { echo '⚠️ Pipeline terminé avec des problèmes (Trivy ?)' }
+    success  { echo '✅ Pipeline terminé avec succès' }
+    unstable { echo '⚠️ Pipeline instable (vérifier les logs)' }
+    failure  { echo '❌ Pipeline échoué' }
   }
 }
