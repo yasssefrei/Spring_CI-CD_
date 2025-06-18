@@ -71,21 +71,31 @@ pipeline {
     }
 
     stage('Deploy to Nexus') {
-      steps {
-        echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
-        withCredentials([usernamePassword(
-          credentialsId: 'nexus-credentials',  // ✅ CORRECTION ICI
-          usernameVariable: 'NEXUS_USER',
-          passwordVariable: 'NEXUS_PASS'
-        )]) {
-          sh '''
-            mvn deploy -B \
-              -DaltDeploymentRepository=nexus::default::${NEXUS_URL} \
-              -Dusername=${NEXUS_USER} -Dpassword=${NEXUS_PASS}
-          '''
-        }
-      }
+  steps {
+    echo '📦 Déploiement du JAR vers Nexus (maven-snapshots)'
+    withCredentials([usernamePassword(
+      credentialsId: 'nexus-credentials',
+      usernameVariable: 'NEXUS_USER',
+      passwordVariable: 'NEXUS_PASS'
+    )]) {
+      // Crée un settings.xml temporaire avec les credentials
+      sh '''cat > settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>nexus</id>
+      <username>$NEXUS_USER</username>
+      <password>$NEXUS_PASS</password>
+    </server>
+  </servers>
+</settings>
+EOF'''
+      
+      // Utilise le nouveau settings.xml et corrige la syntaxe du repository
+      sh 'mvn deploy -B -s settings.xml -DaltDeploymentRepository=nexus::http://34.227.110.97:8081/repository/maven-snapshots/'
     }
+  }
+}
   }
 
   post {
