@@ -41,16 +41,23 @@ pipeline {
 
     stage('Trivy Scan') {
   steps {
-    echo '🔍 Trivy security scan'
-    withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}",
-                                      usernameVariable: 'DOCKER_USER',
-                                      passwordVariable: 'DOCKER_PASS')]) {
-      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-        sh "trivy image --exit-code 1 --severity HIGH,CRITICAL $DOCKER_USER/demoapp:${GIT_COMMIT}"
+    echo '🔍 Analyse de sécurité avec Trivy'
+    script {
+      withCredentials([usernamePassword(
+        credentialsId: "${DOCKERHUB_CRED}",
+        usernameVariable: 'DOCKER_USER',
+        passwordVariable: 'DOCKER_PASS'
+      )]) {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+          sh """
+            trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_USER}/demoapp:${GIT_COMMIT}
+          """
+        }
       }
     }
   }
 }
+
 
 
     stage('Push to Docker Hub') {
